@@ -1,0 +1,214 @@
+#!/usr/bin/env node
+const path = require('path')
+const fs = require('fs')
+const childProcess = require('child_process')
+
+const PKGS_JSON = 'pkgs.json'
+const NIXPKGS_LOCK_JSON = 'nixpkgs.lock.json'
+
+const environment = process.argv[2]
+const operation = process.argv[3]
+const arguments = process.argv.slice(4)
+const directory = getEnvironmentDirectory(environment)
+
+const context = {
+  environment,
+  directory,
+  arguments
+}
+
+switch (operation) {
+  case 'init':
+    handleInit(context)
+    break
+  case 'install':
+  case 'i':
+    handleInstall(context)
+    break
+  case 'uninstall':
+  case 'u':
+    handleUninstall(context)
+    break
+  case 'switch':
+    handleSwitch(context)
+    break
+  default:
+    throw new Error('Invalid operation ' + operation)
+}
+
+function handleInit(context) {
+  function createIfNotExists(filePath, content) {
+    const absolutePath = path.join(context.directory, filePath)
+    if (!fs.existsSync(absolutePath)) {
+      fs.writeFileSync(absolutePath, content)
+      return true
+    } else {
+      console.log(`
+      Example contents of ${absolutePath}:
+      ${content}
+      `)
+      return false
+    }
+  }
+
+  switch (context.environment) {
+    case 'system':
+      createIfNotExists('configuration.nix', `
+      let nixpkgs = (builtins.fetchTarball (builtins.fromJSON (builtins.readFile ./nixpkgs.lock.json)));
+      in
+      { pkgs ? import nixpkgs { }, config, ... }: {
+        imports = [
+          # Include the results of the hardware scan.
+          ./hardware-configuration.nix
+        ];
+
+        environment.systemPackages = (
+          builtins.map (name: builtins.getAttr name pkgs) (builtins.fromJSON (builtins.readFile ./pkgs.json))
+        );
+      }
+      `)
+      return
+    case 'user':
+      createIfNotExists('home.nix', `
+      let nixpkgs = (builtins.fetchTarball (builtins.fromJSON (builtins.readFile ./nixpkgs.lock.json)));
+      in
+      { pkgs ? import nixpkgs { }, config, ... }:
+        home.packages = (
+          builtins.map (name: builtins.getAttr name pkgs) (builtins.fromJSON (builtins.readFile ./pkgs.json))
+        );
+      }
+      `)
+      return
+    case 'local':
+      createIfNotExists('shell.nix', `
+        { pkgs ? import (builtins.fetchTarball (builtins.fromJSON (builtins.readFile ./nixpkgs.lock.json))) { } }:
+        pkgs.mkShell {
+          buildInputs = builtins.map (name: builtins.getAttr name pkgs) (builtins.fromJSON (builtins.readFile ./pkgs.json));
+        }      
+      `)
+      return
+  }
+
+  createIfNotExists('pkgs.json', '[]')
+  createIfNotExists('nixpkgs.lock.json', `
+  {
+    "name": "nixos-unstable-2018-09-12",
+    "url": "https://github.com/nixos/nixpkgs/archive/ca2ba44cab47767c8127d1c8633e2b581644eb8f.tar.gz",
+    "sha256": "1jg7g6cfpw8qvma0y19kwyp549k1qyf11a5sg6hvn6awvmkny47v"
+  }
+  `)
+}
+
+function handleInstall(context) {
+  const packageName = context.arguments[0]
+  if (!packageName) {
+    throw new Error('No package name supplied')
+  }
+  const result = nixEval(`
+  let nixpkgs = import (builtins.fetchTarball (builtins.fromJSON (builtins.readFile ./${NIXPKGS_LOCK_JSON}))) { };
+  in nixpkgs.${packageName}
+  `, { cwd: context.directory })
+  
+  const pkgsJsonPath = path.join(context.directory, PKGS_JSON)
+  const pkgs = JSON.parse(fs.readFileSync(pkgsJsonPath))
+
+  if (!pkgs.includes(packageName)) {
+    const newPkgs = [...pkgs, packageName]
+    const newPkgsJson = JSON.stringify(newPkgs, null, '  ') + '\n'
+    fs.writeFileSync(pkgsJsonPath, newPkgsJson)
+  }
+
+  handleSwitch(context)
+}
+
+function handleUninstall(context) {
+  const packageName = context.arguments[0]
+  if (!packageName) {
+    throw new Error('No package name supplied')
+  }
+
+  const pkgsJsonPath = path.join(context.directory, PKGS_JSON)
+  const pkgs = JSON.parse(fs.readFileSync(pkgsJsonPath))
+
+  if (pkgs.includes(packageName)) {
+    const newPkgs = pkgs.filter(name => name !== packageName)
+    const newPkgsJson = JSON.stringify(newPkgs, null, '  ') + '\n'
+    fs.writeFileSync(pkgsJsonPath, newPkgsJson)
+  }
+
+  handleSwitch(context)
+}
+
+function handleSwitch(context) {
+  switch (context.environment) {
+    case 'local':
+      return handleLocalSwitch(context)
+    case 'user':
+      return handleUserSwitch(context)
+    case 'system':
+      return handleSystemSwitch(context)
+    default:
+      throw new Error(`Switching for environment ${context.environment} is not implemented`)
+  }
+}
+
+function handleSystemSwitch(context) {
+  // Check for configuration.nix
+  if (fs.existsSync(path.join(context.directory, 'configuration.nix'))) {
+    spawn('nixos-rebuild', ['switch'])
+  } else {
+    console.log('Not sure how to switch to new environment')
+  }
+}
+
+function handleUserSwitch(context) {
+  // Check for home-manager
+  if (fs.existsSync(path.join(context.directory, 'home.nix'))) {
+    spawn('home-manager', ['switch'])
+  } else {
+    console.log('Not sure how to switch to new environment')
+  }
+}
+
+function handleLocalSwitch(context) {
+  // Check for direnv
+  if (fs.existsSync(path.join(context.directory, '.envrc'))) {
+    spawn('direnv', ['allow'], { cwd: context.directory })
+  } else {
+    console.log(`Use 'nix-shell' to enter shell with the new environment`)
+  }
+}
+
+function getEnvironmentDirectory(environment) {
+  switch (environment) {
+    case 'system':
+      return '/etc/nixos/';
+    case 'home':
+      return path.join(process.env.HOME, '.config/nixpkgs')
+    case 'local':
+      return path.resolve('.')
+    default:
+      throw new Error('Invalid environment ' + environment)
+  }
+}
+
+function nixEval(nixExpression, options) {
+  const result = spawn('nix', ['eval', '--json', `(${nixExpression})`], {
+    stdio: 'pipe',
+    ...options
+  })
+  return JSON.parse(result.stdout)
+}
+
+function spawn(command, args, options) {
+  const result = childProcess.spawnSync(command, args, { stdio: 'inherit', ...options })
+  if (result.status !== 0) {
+    throw new Error(`Failed to run command '${command} with arguments ${args}':
+      status: ${result.status}
+      stdout: ${result.stdout}
+      stderr: ${result.stderr}
+      error: ${result.error}
+    `)
+  }
+  return result
+}
