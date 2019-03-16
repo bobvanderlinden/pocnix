@@ -2,6 +2,7 @@
 const path = require('path')
 const fs = require('fs')
 const childProcess = require('child_process')
+const https = require('https')
 
 const PKGS_JSON = 'pkgs.json'
 const NIXPKGS_LOCK_JSON = 'nixpkgs.lock.json'
@@ -27,6 +28,8 @@ async function main() {
     case 'uninstall':
     case 'u':
       return await handleUninstall(context)
+    case 'upgrade':
+      return await handleUpgrade(context)
     case 'switch':
       return await handleSwitch(context)
     default:
@@ -137,6 +140,29 @@ async function handleUninstall(context) {
   handleSwitch(context)
 }
 
+async function handleUpgrade(context) {
+  const lockPath = path.join(context.directory, 'nixpkgs.lock.json')
+
+  const { json } = await requestJSON({
+    host: 'api.github.com',
+    path: '/repos/nixos/nixpkgs/git/refs/heads/master'
+  })
+  const masterSha = json.object.sha
+  const url = `https://github.com/nixos/nixpkgs/archive/${masterSha}.tar.gz`
+  const { stdout } = spawn('nix-prefetch-url', [
+    '--type', 'sha256',
+    '--unpack',
+    url
+  ], { stdio: 'pipe' })
+  const sha256 = stdout.toString().trim()
+  const lockContent = JSON.stringify({
+    name: 'nixpkgs',
+    url,
+    sha256
+  }, null, '  ')
+  fs.writeFileSync(lockPath, lockContent)
+}
+
 async function handleSwitch(context) {
   switch (context.environment) {
     case 'local':
@@ -209,6 +235,39 @@ function spawn(command, args, options) {
     `)
   }
   return result
+}
+
+function requestJSON(options) {
+  return new Promise((resolve, reject) => {
+    let responseBody = ''
+    const request = https.request({
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'pocnix/1.0',
+        ...options.headers
+      },
+      ...options
+    }, (response) => {
+      response.on('data', (data) => {
+        responseBody += data.toString()
+      })
+      response.on('end', () => {
+        let json
+        try {
+          json = JSON.parse(responseBody)
+        } catch (err) {
+          return reject(err)
+        }
+        return resolve({
+          request,
+          response,
+          json
+        })
+      })
+    })
+    request.on('error', reject)
+    request.end()
+  })
 }
 
 main()
