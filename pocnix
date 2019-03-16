@@ -17,26 +17,24 @@ const context = {
   arguments
 }
 
-switch (operation) {
-  case 'init':
-    handleInit(context)
-    break
-  case 'install':
-  case 'i':
-    handleInstall(context)
-    break
-  case 'uninstall':
-  case 'u':
-    handleUninstall(context)
-    break
-  case 'switch':
-    handleSwitch(context)
-    break
-  default:
-    throw new Error('Invalid operation ' + operation)
+async function main() {
+  switch (operation) {
+    case 'init':
+      return await handleInit(context)
+    case 'install':
+    case 'i':
+      return await handleInstall(context)
+    case 'uninstall':
+    case 'u':
+      return await handleUninstall(context)
+    case 'switch':
+      return await handleSwitch(context)
+    default:
+      throw new Error('Invalid operation ' + operation)
+  }
 }
 
-function handleInit(context) {
+async function handleInit(context) {
   function createIfNotExists(filePath, content) {
     const absolutePath = path.join(context.directory, filePath)
     if (!fs.existsSync(absolutePath)) {
@@ -99,7 +97,7 @@ function handleInit(context) {
   `)
 }
 
-function handleInstall(context) {
+async function handleInstall(context) {
   const packageName = context.arguments[0]
   if (!packageName) {
     throw new Error('No package name supplied')
@@ -121,7 +119,7 @@ function handleInstall(context) {
   handleSwitch(context)
 }
 
-function handleUninstall(context) {
+async function handleUninstall(context) {
   const packageName = context.arguments[0]
   if (!packageName) {
     throw new Error('No package name supplied')
@@ -139,7 +137,7 @@ function handleUninstall(context) {
   handleSwitch(context)
 }
 
-function handleSwitch(context) {
+async function handleSwitch(context) {
   switch (context.environment) {
     case 'local':
       return handleLocalSwitch(context)
@@ -212,3 +210,5 @@ function spawn(command, args, options) {
   }
   return result
 }
+
+main()
