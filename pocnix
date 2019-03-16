@@ -180,8 +180,8 @@ function handleLocalSwitch(context) {
 function getEnvironmentDirectory(environment) {
   switch (environment) {
     case 'system':
-      return '/etc/nixos/';
-    case 'home':
+      return '/etc/nixos';
+    case 'user':
       return path.join(process.env.HOME, '.config/nixpkgs')
     case 'local':
       return path.resolve('.')
