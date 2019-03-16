@@ -1,5 +1,5 @@
 {
-  "name": "nixos-unstable-2018-09-12",
-  "url": "https://github.com/nixos/nixpkgs/archive/ca2ba44cab47767c8127d1c8633e2b581644eb8f.tar.gz",
-  "sha256": "1jg7g6cfpw8qvma0y19kwyp549k1qyf11a5sg6hvn6awvmkny47v"
+  "name": "nixpkgs",
+  "url": "https://github.com/nixos/nixpkgs/archive/da1a2b1eeafa66b4419b4f275396d8a731eccb61.tar.gz",
+  "sha256": "0pyifm3p93v96izdjzqwrxn5612ylfcnq8gmxi42ygiq52zs23xi"
 }
