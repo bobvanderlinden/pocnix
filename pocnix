@@ -141,14 +141,27 @@ async function handleUninstall(context) {
 }
 
 async function handleUpgrade(context) {
-  const lockPath = path.join(context.directory, 'nixpkgs.lock.json')
+  const lockPath = getNixpkgsLockPath(context)
+  const lockContent = fs.existsSync(lockPath) && JSON.parse(fs.readFileSync(lockPath).toString())
+  const ref = lockContent.name || 'nixos-unstable'
+  await updateLock({
+    lockPath,
+    ref
+  })
+  await handleSwitch(context)
+}
 
+function getNixpkgsLockPath(context) {
+  return path.join(context.directory, 'nixpkgs.lock.json')
+}
+
+async function updateLock({ lockPath, ref }) {
   const { json } = await requestJSON({
     host: 'api.github.com',
-    path: '/repos/nixos/nixpkgs/git/refs/heads/master'
+    path: `/repos/nixos/nixpkgs-channels/git/refs/heads/${ref}`
   })
-  const masterSha = json.object.sha
-  const url = `https://github.com/nixos/nixpkgs/archive/${masterSha}.tar.gz`
+  const sha = json.object.sha
+  const url = `https://github.com/nixos/nixpkgs-channels/archive/${sha}.tar.gz`
   const { stdout } = spawn('nix-prefetch-url', [
     '--type', 'sha256',
     '--unpack',
@@ -156,7 +169,7 @@ async function handleUpgrade(context) {
   ], { stdio: 'pipe' })
   const sha256 = stdout.toString().trim()
   const lockContent = JSON.stringify({
-    name: 'nixpkgs',
+    name: ref,
     url,
     sha256
   }, null, '  ')
