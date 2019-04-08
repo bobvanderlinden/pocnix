@@ -116,7 +116,7 @@ async function handleInstall(context) {
     fs.writeFileSync(pkgsJsonPath, newPkgsJson)
   }
 
-  handleSwitch(context)
+  await handleSwitch(context)
 }
 
 async function handleUninstall(context) {
@@ -134,7 +134,7 @@ async function handleUninstall(context) {
     fs.writeFileSync(pkgsJsonPath, newPkgsJson)
   }
 
-  handleSwitch(context)
+  await handleSwitch(context)
 }
 
 async function handleUpgrade(context) {
